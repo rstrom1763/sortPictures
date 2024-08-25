@@ -155,6 +155,7 @@ fn main() {
                     if file_type.is_file() {
 
                         let ext = get_file_extension(file.file_name().to_str().unwrap());
+
                         if ext == ".jpg" {
                             handles.push(thread::spawn(move || {
                                 generate_thumbnail(file.file_name().to_str().unwrap(),60);
@@ -164,6 +165,11 @@ fn main() {
                                     .to_str()
                                     .unwrap());
                             }));
+                        } else {
+                            move_file(&file
+                                .file_name()
+                                .to_str()
+                                .unwrap());
                         }
                     }
 
