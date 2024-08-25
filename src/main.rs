@@ -1,9 +1,11 @@
 use std::{fs};
-use image::{DynamicImage, GenericImageView};
 use exif;
 use std::io::BufReader;
-use exif::{In,Reader};
+use exif::{In};
 use std::fs::File;
+use std::thread;
+use image::codecs::jpeg::JpegEncoder;
+use std::io::BufWriter;
 
 fn get_file_extension(filename: &str) -> String {
 
@@ -114,7 +116,7 @@ fn get_orientation(file_path: &str) -> u32 {
     orientation
 }
 
-fn generate_thumbnail(filename: &str) {
+fn generate_thumbnail(filename: &str,quality: usize) {
 
     let mut img = image::ImageReader::open(filename)
         .expect("Failed to load image")
@@ -123,18 +125,24 @@ fn generate_thumbnail(filename: &str) {
 
 
     let orientation = get_orientation(filename);
-    if orientation == 8{
+    if orientation == 8 { // Rotate if it is a vertical image
         img = img.rotate270();
     }
 
-    let resized = img.resize(1920, 1080, image::imageops::FilterType::Lanczos3);
+    img = img.resize(1920, 1080, image::imageops::FilterType::Lanczos3);
 
-    resized.save(["thumb_",filename].concat()).unwrap()
+    let file = File::create(["thumb_",filename].concat()).unwrap();
+    let mut writer = BufWriter::new(file);
+
+    let mut encoder = JpegEncoder::new_with_quality(&mut writer, quality as u8);
+    encoder.encode_image(&img).unwrap()
 }
 
 fn main() {
 
     create_dirs();
+
+    let mut handles  = vec![];
 
     if let Ok(files) = fs::read_dir("./") {
 
@@ -146,13 +154,17 @@ fn main() {
 
                     if file_type.is_file() {
 
-                        generate_thumbnail(file.file_name().to_str().unwrap());
+                        let ext = get_file_extension(file.file_name().to_str().unwrap());
+                        if ext == ".jpg" {
+                            handles.push(thread::spawn(move || {
+                                generate_thumbnail(file.file_name().to_str().unwrap(),60);
 
-                        move_file(&file
-                            .file_name()
-                            .to_str()
-                            .unwrap());
-
+                                move_file(&file
+                                    .file_name()
+                                    .to_str()
+                                    .unwrap());
+                            }));
+                        }
                     }
 
                 } else {
@@ -163,4 +175,9 @@ fn main() {
             }
         }
     }
+
+    for handle in handles{
+        handle.join().unwrap();
+    }
+
 }
