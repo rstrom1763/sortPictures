@@ -40,6 +40,9 @@ impl FileCategory {
     }
 }
 
+use std::env;
+use std::path::Path;
+
 fn get_file_extension(filename: &str) -> String {
     if let Some(index) = filename.rfind(".") {
         let path_len = filename.len();
@@ -48,8 +51,8 @@ fn get_file_extension(filename: &str) -> String {
     "".to_string()
 }
 
-fn check_for_category(category: FileCategory) -> bool {
-    if let Ok(files) = fs::read_dir("./") {
+fn check_for_category(category: FileCategory, base_path: &Path) -> bool {
+    if let Ok(files) = fs::read_dir(base_path) {
         for file in files {
             if let Ok(file) = file {
                 let file_name = file.file_name();
@@ -67,25 +70,27 @@ fn check_for_category(category: FileCategory) -> bool {
     false
 }
 
-fn create_dirs() {
+fn create_dirs(base_path: &Path) {
     // Always try to create the thumbnails directory
-    match fs::create_dir("thumbnails") {
+    let thumb_dir = base_path.join("thumbnails");
+    match fs::create_dir(&thumb_dir) {
         Ok(_) => (),
         Err(e) => {
             if e.kind() != std::io::ErrorKind::AlreadyExists {
-                println!("There was an error creating dir thumbnails: {}", e);
+                println!("There was an error creating dir {:?}: {}", thumb_dir, e);
             }
         }
     }
 
     for category in FileCategory::all_categories() {
-        if check_for_category(*category) {
+        if check_for_category(*category, base_path) {
             if let Some(dir) = category.dir_name() {
-                match fs::create_dir(dir) {
+                let target_dir = base_path.join(dir);
+                match fs::create_dir(&target_dir) {
                     Ok(_) => (),
                     Err(e) => {
                         if e.kind() != std::io::ErrorKind::AlreadyExists {
-                            println!("There was an error creating dir {}: {}", dir, e);
+                            println!("There was an error creating dir {:?}: {}", target_dir, e);
                         }
                     }
                 }
@@ -94,19 +99,20 @@ fn create_dirs() {
     }
 }
 
-fn move_file(file: &str) {
+fn move_file(file: &str, base_path: &Path) {
     let ext = get_file_extension(file);
     let category = FileCategory::from_extension(&ext);
 
     if let Some(dir) = category.dir_name() {
-        let target_path = format!("./{}/{}", dir, file);
-        if let Err(e) = fs::rename(file, target_path) {
-            println!("Could not move file {}: {}", file, e);
+        let source_path = base_path.join(file);
+        let target_path = base_path.join(dir).join(file);
+        if let Err(e) = fs::rename(&source_path, &target_path) {
+            println!("Could not move file {:?}: {}", source_path, e);
         }
     }
 }
 
-fn get_orientation(file_path: &str) -> u32 {
+fn get_orientation(file_path: &Path) -> u32 {
     let file = match File::open(file_path) {
         Ok(f) => f,
         Err(_) => return 1,
@@ -127,11 +133,12 @@ fn get_orientation(file_path: &str) -> u32 {
     }
 }
 
-fn generate_thumbnail(filename: &str, quality: usize) {
-    let img_reader = match image::ImageReader::open(filename) {
+fn generate_thumbnail(filename: &str, quality: usize, base_path: &Path) {
+    let source_path = base_path.join(filename);
+    let img_reader = match image::ImageReader::open(&source_path) {
         Ok(reader) => reader,
         Err(e) => {
-            println!("Failed to open image {}: {}", filename, e);
+            println!("Failed to open image {:?}: {}", source_path, e);
             return;
         }
     };
@@ -139,12 +146,12 @@ fn generate_thumbnail(filename: &str, quality: usize) {
     let mut img = match img_reader.decode() {
         Ok(decoded) => decoded,
         Err(e) => {
-            println!("Failed to decode image {}: {}", filename, e);
+            println!("Failed to decode image {:?}: {}", source_path, e);
             return;
         }
     };
 
-    let orientation = get_orientation(filename);
+    let orientation = get_orientation(&source_path);
     if orientation == 8 {
         // Rotate if it is a vertical image
         img = img.rotate270();
@@ -152,11 +159,11 @@ fn generate_thumbnail(filename: &str, quality: usize) {
 
     img = img.resize(1920, 1080, image::imageops::FilterType::Lanczos3);
     
-    let thumb_path = format!("thumbnails/thumb_{}", filename);
+    let thumb_path = base_path.join("thumbnails").join(format!("thumb_{}", filename));
     let file = match File::create(&thumb_path) {
         Ok(f) => f,
         Err(e) => {
-            println!("Failed to create thumbnail for {}: {}", filename, e);
+            println!("Failed to create thumbnail for {:?}: {}", thumb_path, e);
             return;
         }
     };
@@ -164,12 +171,24 @@ fn generate_thumbnail(filename: &str, quality: usize) {
 
     let mut encoder = JpegEncoder::new_with_quality(&mut writer, quality as u8);
     if let Err(e) = encoder.encode_image(&img) {
-        println!("Failed to encode thumbnail for {}: {}", filename, e);
+        println!("Failed to encode thumbnail for {:?}: {}", thumb_path, e);
     }
 }
 
 fn main() {
-    create_dirs();
+    let args: Vec<String> = env::args().collect();
+    let base_path = if args.len() > 1 {
+        Path::new(&args[1])
+    } else {
+        Path::new(".")
+    };
+
+    if !base_path.exists() || !base_path.is_dir() {
+        println!("The path {:?} is not a valid directory.", base_path);
+        return;
+    }
+
+    create_dirs(base_path);
 
     let num_threads = thread::available_parallelism()
         .map(|n| n.get() * 2)
@@ -183,7 +202,7 @@ fn main() {
     let mut jpg_files = vec![];
     let mut other_files = vec![];
 
-    if let Ok(files) = fs::read_dir("./") {
+    if let Ok(files) = fs::read_dir(base_path) {
         for file in files {
             if let Ok(file) = file {
                 if let Ok(file_type) = file.file_type() {
@@ -218,12 +237,12 @@ fn main() {
 
     pool.install(|| {
         jpg_files.into_par_iter().for_each(|name| {
-            generate_thumbnail(&name, 60);
-            move_file(&name);
+            generate_thumbnail(&name, 60, base_path);
+            move_file(&name, base_path);
         });
     });
 
     for name in other_files {
-        move_file(&name);
+        move_file(&name, base_path);
     }
 }
