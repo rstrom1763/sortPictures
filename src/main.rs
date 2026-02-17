@@ -19,9 +19,9 @@ enum FileCategory {
 impl FileCategory {
     fn from_extension(ext: &str) -> Self {
         match ext {
-            ".jpg" | ".jpeg" | ".png" => FileCategory::Jpg,
-            ".cr3" | ".cr2" => FileCategory::Raw,
-            ".mp4" | ".mpeg" | ".m4v" | ".webm" | ".webp" | ".mkv" | ".avi" | ".wmv" => FileCategory::Video,
+            ".jpg" | ".jpeg" | ".png" | ".heic" | ".heif" => FileCategory::Jpg,
+            ".cr3" | ".cr2" | ".crw" | ".nef" | ".nrw" | ".arw" | ".srf" | ".sr2" | ".orf" | ".rw2" | ".raf" | ".dng" | ".pef" | ".srw" => FileCategory::Raw,
+            ".mp4" | ".mpeg" | ".m4v" | ".webm" | ".webp" | ".mkv" | ".avi" | ".wmv" | ".mov" | ".3gp" | ".3g2" => FileCategory::Video,
             _ => FileCategory::Unknown,
         }
     }
@@ -229,7 +229,7 @@ fn main() {
                         }
                     }
                 } else {
-                    println!("There was an error on file: {:?}", file.path())
+                    println!("There was an error on file: {:?}", file.path());
                 }
             }
         }
